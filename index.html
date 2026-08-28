@@ -143,7 +143,7 @@ blockquote cite{
 <div id="titleReveal">
   <div class="kicker">F. Scott Fitzgerald &middot; Esquire &middot; February 1937</div>
   <h1>An Alcoholic Case</h1>
-  <div class="byline">Presented by Paarth &amp; Sol</div>
+  <div class="byline">Aidan &middot; Paarth &middot; Sol</div>
   <div class="thesis">On the distance between understanding someone and being able to save them.</div>
 </div>
 
@@ -375,21 +375,44 @@ function stepLiquid(dt){
   }
 }
 
+// Clear spirit on a dark floor is only visible as reflected light, so the film is
+// a pale sheen (mottled by the same noise that drives the flow) and every boundary
+// between wet and dry carries a bright meniscus — including the edge it stops at.
 function renderLiquid(bodyA, rimA){
   const md = mimg.data, ld = limg.data;
-  for (let i=0, p=0; i<N; i++, p+=4){
-    const w = wet[i];
-    if (w <= 0.30){ md[p+3]=0; ld[p+3]=0; continue; }
-    const a = w >= 1 ? 1 : (w-0.30)/0.70;      // coverage 0..1
-    const sm = a*a*(3-2*a);
-    md[p]=255; md[p+1]=255; md[p+2]=255; md[p+3]= sm*255;
-    // advancing edge glows (meniscus); interior is dark wet glass
-    const rim = Math.max(0, 1 - Math.abs(a-0.62)/0.38);
-    const rr = rim*rim;
-    const dep = depth[i];
-    const cr = 14 + rr*196, cg = 24 + rr*216, cb = 20 + rr*206;
-    ld[p]=cr; ld[p+1]=cg; ld[p+2]=cb;
-    ld[p+3] = Math.min(255, (sm*0.42*dep*bodyA + rr*0.62*rimA)*255);
+  for (let y=0; y<gy; y++){
+    for (let x=0; x<gx; x++){
+      const i = y*gx+x, p = i*4;
+      const w = wet[i];
+      if (w <= 0.30){ md[p+3]=0; ld[p+3]=0; continue; }
+      const a = w >= 1 ? 1 : (w-0.30)/0.70;
+      const sm = a*a*(3-2*a);
+      md[p]=255; md[p+1]=255; md[p+2]=255; md[p+3] = sm*255;
+
+      // meniscus wherever this cell is wetter than a neighbour
+      const cw = w<1?w:1;
+      const l = x>0     ? (wet[i-1] <1?wet[i-1] :1) : 0;
+      const r = x<gx-1  ? (wet[i+1] <1?wet[i+1] :1) : 0;
+      const u = y>0     ? (wet[i-gx]<1?wet[i-gx]:1) : 0;
+      const d = y<gy-1  ? (wet[i+gx]<1?wet[i+gx]:1) : 0;
+      const mn = l<r?(l<u?(l<d?l:d):(u<d?u:d)):(r<u?(r<d?r:d):(u<d?u:d));
+      let edge = (cw - mn) * 1.8;
+      edge = edge>1?1:(edge<0?0:edge);
+      const spec = edge*edge;
+
+      // uneven film thickness -> the wet sheen mottles instead of reading as a flat wash
+      const film = (resist[i]-0.42)/1.55;
+      const dep = depth[i];
+      const sheen = sm*dep*(0.055 + 0.155*film)*bodyA;
+      const sa = spec*0.72*rimA;
+      const tot = sheen + sa;
+      if (tot <= 0.004){ ld[p+3]=0; continue; }
+      const k = sa/tot;
+      ld[p]   = 150 + k*72;
+      ld[p+1] = 178 + k*58;
+      ld[p+2] = 170 + k*58;
+      ld[p+3] = Math.min(255, tot*255);
+    }
   }
   mctx.putImageData(mimg,0,0);
   lctx.putImageData(limg,0,0);
@@ -416,19 +439,20 @@ function paintLiquid(){
 let shards=[], dust=[], flash=0;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function makeShard(big){
-  const n = big ? (Math.random()<.5?3:4) : 3, R = big?rnd(9,21):rnd(2.4,7), pts=[];
+  const n = big ? (Math.random()<.5?3:4) : 3, R = big?rnd(10,24):rnd(2.6,8), pts=[];
   for (let i=0;i<n;i++){ const a=(i/n)*6.283+rnd(-.5,.5), r=R*rnd(.45,1); pts.push([Math.cos(a)*r,Math.sin(a)*r]); }
   const dir=rnd(-Math.PI,0), sp=big?rnd(120,520):rnd(180,900);
   return { x:W*0.5+rnd(-14,14), y:FLOOR+rnd(-16,4),
     vx:Math.cos(dir)*sp*rnd(.8,1.6), vy:Math.sin(dir)*sp*rnd(.35,1)-rnd(40,260),
     a:rnd(0,6.28), va:rnd(-9,9), pts, big, rest:false, seeded:false,
-    floor:FLOOR+rnd(-3,26),
+    // glass skitters across a floor seen in perspective, so it settles over a band
+    floor:FLOOR+rnd(-72,105),
     tint: Math.random()<.16?'red':(Math.random()<.12?'label':'glass') };
 }
 function shatter(){
   shards=[]; dust=[];
-  for (let i=0;i<22;i++) shards.push(makeShard(true));
-  for (let i=0;i<96;i++) shards.push(makeShard(false));
+  for (let i=0;i<30;i++) shards.push(makeShard(true));
+  for (let i=0;i<130;i++) shards.push(makeShard(false));
   for (let i=0;i<70;i++){ const dir=rnd(-Math.PI,0), sp=rnd(200,1100);
     dust.push({x:W*0.5,y:FLOOR,vx:Math.cos(dir)*sp,vy:Math.sin(dir)*sp,life:1,floor:FLOOR+rnd(-4,30)}); }
   seed(SX, SY, 4);
@@ -471,22 +495,36 @@ function drawBottle(x,y,rot){
 }
 
 /* ---------- sizing ---------- */
+let phase='blank', t0=0, last=0, acc=0, prevWet=0, stall=0;
+
+// The cover hides the title until liquid reaches it. Assigning canvas.width wipes
+// the canvas, so every resize must repaint this or the title leaks through.
+function sealCover(){
+  cvc.setTransform(DPR,0,0,DPR,0,0);
+  cvc.globalCompositeOperation='source-over'; cvc.filter='none';
+  cvc.fillStyle='#08090b'; cvc.fillRect(0,0,W,H);
+}
 function size(){
   DPR = Math.min(devicePixelRatio||1, 2);
-  W = innerWidth; H = innerHeight; FLOOR = H*0.62;
+  W = Math.max(2, innerWidth); H = Math.max(2, innerHeight); FLOOR = H*0.70;
   for (const c of [fx, cover]){
     c.width = W*DPR; c.height = H*DPR;
     c.style.width = W+'px'; c.style.height = H+'px';
   }
-  fxc.setTransform(DPR,0,0,DPR,0,0); cvc.setTransform(DPR,0,0,DPR,0,0);
+  fxc.setTransform(DPR,0,0,DPR,0,0);
   buildField();
+  sealCover();
 }
 size();
 addEventListener('resize', () => {
   const wasRest = phase==='rest';
   size();
-  if (wasRest){ if (reduce) fillAll(); else { seed(SX,SY,4); phase='pour'; t0=performance.now(); last=t0; } }
+  // never replay the spill mid-presentation; just restore it at the new size
+  if (wasRest){ fillAll(); paintRest(); }
 });
+// belt and braces: a late layout settle (fonts, iframe, URL bar) must not unseal it
+addEventListener('load', () => { if (phase==='blank') sealCover(); });
+document.fonts && document.fonts.ready.then(() => { if (phase==='blank') sealCover(); });
 
 function fillAll(){
   for (let y=0;y<gy;y++) for (let x=0;x<gx;x++){
@@ -497,7 +535,6 @@ function fillAll(){
 }
 
 /* ---------- loop ---------- */
-let phase='blank', t0=0, last=0, acc=0, prevWet=0, stall=0;
 function frame(ts){
   requestAnimationFrame(frame);
   if (phase==='blank' || phase==='rest'){ last=ts; return; }
@@ -560,7 +597,7 @@ function frame(ts){
 }
 function paintRest(){
   renderLiquid(1,1); paintCover();
-  fxc.clearRect(0,0,W,H); paintLiquid(); drawShards(0.9,0.35);
+  fxc.clearRect(0,0,W,H); paintLiquid(); drawShards(1,0.55);
 }
 requestAnimationFrame(frame);
 
@@ -614,7 +651,6 @@ addEventListener('keydown', e=>{
 });
 addEventListener('click', e=>{ if (e.clientX < innerWidth*0.18 && started) go(i-1); else advance(); });
 
-// blank until the first press
-cvc.fillStyle='#08090b'; cvc.fillRect(0,0,W,H);
+sealCover();   // blank until the first press
 })();
 </script>
